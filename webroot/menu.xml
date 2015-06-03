@@ -119,6 +119,19 @@ and need to add the iconClass tag wherever we need to show some icons
               <searchStrings>Storage Disks</searchStrings>
             </item>
             <item>
+              <hash>mon_storage_visualization</hash>
+              <label>Visualization</label>
+              <resources>
+                  <resource>
+                      <rootDir>/monitor/tenant-storage/visualization/ui</rootDir>
+                      <js>tenant_monitor_storage_viz.js</js>
+                      <view>tenant_monitor_storage_viz.view</view>
+                      <class>storageRenderer</class>
+                  </resource>
+              </resources>
+              <searchStrings>Storage Visualization</searchStrings>
+            </item>
+            <item>
               <hash>mon_storage_monitor</hash>
               <label>Monitor</label>
               <resources>
