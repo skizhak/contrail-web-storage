@@ -59,6 +59,7 @@ var Disk = function() {
     this.writes_kbytes = "Not Available";
     this.apply_latency = "";
     this.commit_latency = "";
+    this.color = "";
 }
 
 Disk.prototype.setName = function(name) {
@@ -153,6 +154,18 @@ Disk.prototype.setCephCrushName = function(name) {
     }
 }
 
+Disk.prototype.setColor = function(color) {
+    if(null !== color && typeof color == "string") {
+        this.color = color;
+    } else {
+        this.color = "";
+    }
+}
+
+Disk.prototype.getColor = function() {
+    return this.color;
+}
+
 Disk.prototype.setData = function(data) {
     if(null != data && typeof data != "undefined") {
         if(data.name) {
@@ -201,6 +214,9 @@ Disk.prototype.setData = function(data) {
         }
         if(data.ceph_crush_name) {
             this.setCephCrushName(data.ceph_crush_name);
+        }
+        if(data.color) {
+            this.setColor(data.color);
         }
     }
 }
@@ -301,6 +317,8 @@ var StorageNode = function() {
     this.build_info = "";
     this.monitor_enabled = false;
     this.max_disks = 0;
+    this.status = "";
+    this.color = "";
 
     this.monitor = {};
     this.disks = [];
@@ -392,6 +410,30 @@ StorageNode.prototype.getDisks = function() {
     return this.disks;
 }
 
+StorageNode.prototype.setStatus = function(status) {
+    if(null !== status && typeof status == "string") {
+        this.status = status;
+    } else {
+        this.status = "";
+    }
+}
+
+StorageNode.prototype.getStatus = function() {
+    return this.status;
+}
+
+StorageNode.prototype.setColor = function(color) {
+    if(null !== color && typeof color == "string") {
+        this.color = color;
+    } else {
+        this.color = "";
+    }
+}
+
+StorageNode.prototype.getColor = function() {
+    return this.color;
+}
+
 StorageNode.prototype.setData = function(data) {
     if (null !== data && typeof data !== "undefined") {
         if (data.name) {
@@ -431,8 +473,14 @@ StorageNode.prototype.setData = function(data) {
             });
         }
         this.setMaxDisks(disks.length);
-        if(disks.length > 0) {
+        if (disks.length > 0) {
             this.setDisks(disks);
+        }
+        if (data.status) {
+            this.setStatus(data.status);
+        }
+        if (data.color) {
+            this.setColor(data.color);
         }
     }
 }
@@ -631,16 +679,16 @@ StorageCluster.prototype.processData = function(data) {
     if(data.type) {
         this.setType(data.type);
     }
-    if(this.total_node) {
+    if(data.total_node) {
         this.setMaxStorageNodes(data.total_node);
     }
-    if(this.total_up_node) {
+    if(data.total_up_node) {
         this.setMaxUpNodes(data.total_up_node);
     }
-    if(this.total_down_node) {
+    if(data.total_down_node) {
         this.setMaxDownNodes(data.total_down_node);
     }
-    if(this.total_warn_node) {
+    if(data.total_warn_node) {
         this.setMaxWarnNodes(data.total_warn_node);
     }
     if(null !== data && data.hasOwnProperty('hosts') &&
@@ -760,6 +808,25 @@ storageModel.prototype.processData = function(data) {
     $.each(topology_data, function(idx, topology) {
         if(topology.type == "root") {
             var tmpClusterData = new StorageCluster();
+            var osdColorArr = [],
+                osdStatusArr = [],
+                hostColorArr = [],
+                hostStatusArr = [];
+
+            $.each(topology.hosts, function(idx, tmpHostData) {
+                $.each(tmpHostData.osds, function(idx, osd) {
+                    osd.color = getOSDColor(osd);
+                    osdColorArr.push(osd.color);
+                    osdStatusArr.push(osd.status);
+                    osdStatusArr.push(osd.cluster_status);
+                });
+                tmpHostData.color = getHostColor(osdColorArr);
+                hostColorArr = tmpHostData.color;
+                tmpHostData.status = getHostStatus(osdStatusArr);
+                hostStatusArr = tmpHostData.status;
+            });
+            topology.color = getHostColor(hostColorArr);
+            topology.status = getHostStatus(hostStatusArr);
             tmpClusterData.processData(topology);
             _this.setCluster(tmpClusterData);
         } else {
@@ -1129,11 +1196,17 @@ storageView.prototype.createLink = function(link, link_type, source, target) {
     var options;
     var linkElement;
     link1 = {}
+    var stroke = '#222';
     options = {
         direction   : "bi",
         linkType    : link.link_type,
         linkDetails : link
     };
+    var modelData = source.attributes.nodeDetails.modelData;
+    console.log(modelData);
+    if(modelData.identifier == "NODE" || modelData.identifier == "DISK") {
+        stroke = modelData.color;
+    }
 
     options['sourceId'] = source.id
     options['targetId'] = target.id;
@@ -1141,7 +1214,15 @@ storageView.prototype.createLink = function(link, link_type, source, target) {
     linkElement = new joint.dia.Link({
         source: { id: source.id },
         target: { id: target.id },
-        attrs: { '.connection': { 'stroke-width': 1.2, stroke: '#222' }, '.marker-vertices': { display: 'none' }},
+        attrs: {
+            '.connection': {
+                'stroke-width': 1.2,
+                stroke: stroke
+            },
+            '.marker-vertices': {
+                display: 'none'
+            }
+        },
         //smooth: true, // We'are using a bezier curve
         z: -1, // The links are always lying under the elements.,
         linkDetails: {
@@ -1163,7 +1244,8 @@ storageView.prototype.createNode = function(data, type, current_index, view) {
         blocksPerColumn = 0,
         imageLink = "",
         iconClass = "",
-        label     = "";
+        label     = "",
+        tableLayout = false;
     if(view === "cluster") {
         if(type === "storage-cluster") {
             totalBlocks = data.modelData.storage_nodes.length;
@@ -1171,6 +1253,9 @@ storageView.prototype.createNode = function(data, type, current_index, view) {
         }else {
             totalBlocks = data.parentData.storage_nodes.length;
             blocksPerColumn = Math.ceil(totalBlocks / 2);
+        }
+        if (totalBlocks > 14) {
+            tableLayout = true;
         }
         var perBlockHeight = ($("#topology-connected-elements").height() - 5)/blocksPerColumn;
         height = (perBlockHeight < 36) ? perBlockHeight : 36;
@@ -1183,7 +1268,7 @@ storageView.prototype.createNode = function(data, type, current_index, view) {
                 width = 35;
                 height = 36;
                 xPos = ($("#topology-connected-elements").width() - 35)/2;
-                yPos = ($("#topology-connected-elements").height() - 36)/2;
+                yPos = (tableLayout)? ($("#topology-connected-elements").height() - 36): ($("#topology-connected-elements").height() - 36)/2;
                 break;
             case 'storage-chassis':
                 label = "Chassis";
@@ -1196,9 +1281,21 @@ storageView.prototype.createNode = function(data, type, current_index, view) {
             case 'storage-node':
                 iconClass = "icon-th-list";
                 label = data.name;
-                yPos = (current_index%blocksPerColumn) * perBlockHeight + 50;
-                xPos = (current_index < blocksPerColumn) ? ((($("#topology-connected-elements").width() - 35)/2) - 100) : ((($("#topology-connected-elements").width() - 35)/2) + 100);
-                console.log(current_index, blocksPerColumn, perBlockHeight, xPos, yPos);
+                width = 60;
+                height = 50;
+                //var xCenter = ($("#topology-connected-elements").width() - 35)/2;
+                //var yCenter = ($("#topology-connected-elements").height() - 36)/2;
+                //yPos = yCenter + (5 + 5 * current_index * 0.1 * 20) * Math.sin(current_index * 0.1);
+                //xPos = xCenter + (5 + 5 * current_index * 0.1 * 20) * Math.cos(current_index * 0.1);
+                if (tableLayout) {
+                    blocksPerRow = Math.ceil(($("#topology-connected-elements").width() / width) / 2);
+                    xPos = Math.ceil(current_index % blocksPerRow) * 2 * width + 10;
+                    yPos =  Math.ceil(((current_index == 0)? 1:current_index) / blocksPerRow) * 2 * height + 20;
+                    console.log(current_index, blocksPerRow, xPos, yPos);
+                } else {
+                    yPos = (current_index%blocksPerColumn) * perBlockHeight + 50;
+                    xPos = (current_index < blocksPerColumn) ? ((($("#topology-connected-elements").width() - 35)/2) - 100) : ((($("#topology-connected-elements").width() - 35)/2) + 100);
+                }
                 break;
         }
 
@@ -1253,7 +1350,10 @@ storageView.prototype.createNode = function(data, type, current_index, view) {
             height: height
         },
         nodeDetails: data,
-        position: {x: xPos, y: yPos},
+        position: {
+            x: xPos,
+            y: yPos
+        },
         font: {
             iconClass: iconClass
         }
@@ -1329,9 +1429,30 @@ storageView.prototype.initTooltipConfig = function() {
         },
         Disk: {
             title: function(element, graph) {
-                console.log(element);
+                return "Disk";
             },
             content: function(element, graph) {
+                var viewElement = graph.getCell(element.attr('model-id'));
+                var tooltipContent = contrail.getTemplate4Id('tooltip-content-template');
+                return tooltipContent([
+                    {
+                        lbl: "Name",
+                        value:  [viewElement.attributes.nodeDetails.modelData.name]
+                    },
+                    {
+                        lbl: "Status",
+                        value:  [viewElement.attributes.nodeDetails.modelData.status]
+                    },
+                    {
+                        lbl: "Membership",
+                        value:  [viewElement.attributes.nodeDetails.modelData.cluster_status]
+                    },
+                    {
+                        lbl: "Usage",
+                        value:  [formatBytes(viewElement.attributes.nodeDetails.modelData.kb_used * 1024) +" / " +
+                        formatBytes(viewElement.attributes.nodeDetails.modelData.kb * 1024)]
+                    }
+                ]);
 
             }
         },
